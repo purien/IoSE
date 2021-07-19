@@ -1,0 +1,82 @@
+//////////////////////////////////////////////
+***********Configuration File*****************
+//////////////////////////////////////////////
+
+
+ca_file   ./cert/root.pem
+ca_dir    ./
+cert_file ./cert/server.pem
+key_file  ./cert/serverkey.pem
+password  pascal
+//cipher_list  ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH
+cipher_list    ALL:!ADH:!LOW:!EXP:@STRENGTH
+
+
+server_port     0.0.0.0:7777
+server_port2    0.0.0.0:8888
+
+autostart yes
+
+start_delay  0       (ms)
+
+trace_dir ./trace/   (default ./)
+
+server_timeout  600000     (in ms)
+server_timeout2 600000     (in ms)
+
+
+
+// Blue Green Red
+bg_color   FFFFFF //0066FF   
+pen_color  000000 //FFFFFF    
+font_size  18
+line_size  140
+
+
+
+// CN that are not referenced in SEID table (SEID.txt) default access to embedded AID in SE (yes - no)
+// or no SEID.txt file
+
+se_default_access no
+
+// List only authorized SEID (default = no)
+restricted_seid_list yes
+
+
+is_external_grid     no
+
+racs_verbose         yes
+
+secure_element_index yes
+
+reader_verbose yes
+
+reader_console yes
+
+system_console  yes
+
+system_console2 yes
+
+close_session_console yes
+close_session_delay   0 (in ms)
+session_console_tile  yes
+
+racs_log  no
+
+
+// Zone TLS
+cache_enable    no
+cache_timeout   180
+cache_nb_digits 64   // max=64
+cache_for_ever  yes
+
+
+
+
+
+
+
+
+
+
+
