@@ -1,4 +1,4 @@
-# Getting started
+Getting started
 ===============
 
 TLS-SE downloading in secure element
