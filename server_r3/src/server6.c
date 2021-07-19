@@ -1,0 +1,1365 @@
+/* server6.c */
+/* Copyright (C) 2017 Pascal Urien (pascal.urien@gmail.com)
+ * All rights reserved.
+ *
+ * This software is an implementation of the internet draft
+ * https://tools.ietf.org/html/draft-urien-core-racs-00
+ * "Remote APDU Call Secure (RACS)" by Pascal Urien.
+ * The implementation was written so as to conform with this draft.
+ * 
+ * This software is free for non-commercial use as long as
+ * the following conditions are aheared to.  The following conditions
+ * apply to all code found in this distribution.
+ * 
+ * Copyright remains Pascal Urien's, and as such any Copyright notices in
+ * the code are not to be removed.
+ * If this package is used in a product, Pascal Urien should be given attribution
+ * as the author of the parts of the library used.
+ * This can be in the form of a textual message at program startup or
+ * in documentation (online or textual) provided with the package.
+ * 
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. All advertising materials mentioning features or use of this software
+ *    must display the following acknowledgement:
+ *    "This product includes RACS-Server software written by
+ *     Pascal Urien (pascal.urien@gmail.com)"
+ * 
+ * THIS SOFTWARE IS PROVIDED BY PASCAL URIEN ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS 
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ * 
+ * The licence and distribution terms for any publically available version or
+ * derivative of this code cannot be changed.  i.e. this code cannot simply be
+ * copied and put under another distribution licence
+ * [including the GNU Public Licence.]
+ */
+
+#ifdef WIN32
+#define _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_DEPRECATE
+#endif
+
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <time.h>
+#include <sys/timeb.h>
+
+
+#include "common2.h"
+#include "reentrant2.h"
+#include "mutuex.h"
+
+
+#ifndef WIN32
+   #include <sys/types.h>
+   #include <sys/socket.h>
+   #include <netinet/in.h>
+   #include <arpa/inet.h>
+   #include <netdb.h>
+   #define DWORD long
+   #define HWND int
+  
+ 
+#else
+  #include <windows.h>
+#endif
+
+#ifdef WIN32
+// #include <windows.h>
+#elif _POSIX_C_SOURCE >= 199309L
+// #include <time.h>   // for nanosleep
+#else
+#include <unistd.h> // for usleep
+#endif
+
+extern void sleep_ms(int milliseconds );
+
+THREAD_CC server_thread(void *arg);
+
+extern int gPrintf(int id,char *fmt, ...);
+
+
+
+#define CAFILE     "root.pem"
+#define CADIR      "./"
+#define CERTFILE   "server.pem"
+#define KEYFILE    "serverkey.pem"
+#define PASSWORD   "pascal"
+#define CIPHER_LIST "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH"
+#define MYSOCKET    "0.0.0.0:8888"
+
+#define MAX_APDU_RESPONSE             4096
+#define RACS_RESPONSE_BUFFER_SIZE     8192
+#define MAX_SCRIPT_NAME                 64
+#define RACS_RESPONSE_BUFFER_MIN_SIZE 1024
+
+static int sMODE=2 ;
+//#define CIPHER_LIST  "AECDH-RC4-SHA"
+
+
+char cafile[128];
+char cadir[128];
+char certfile[128];
+char keyfile[128];
+char password[128];
+char cipherlist[128];
+char mysocket[128];
+int stimeout=600000;
+
+extern int restricted_seid_list;
+
+int serverdefault()
+{
+  strcpy(cafile, CAFILE);
+  strcpy(cadir,CADIR);
+  strcpy(certfile,CERTFILE);
+  strcpy(keyfile,KEYFILE);
+  strcpy(password,PASSWORD);
+  strcpy(cipherlist,CIPHER_LIST);
+  strcpy(mysocket,MYSOCKET);
+
+  return 0;
+
+}
+ 
+static int pem_passwd_cb(char *buf,int size,int rwflag, void *passwd)
+{ strcpy(buf,password);
+
+	
+return((int)strlen(buf));
+}
+
+int select_ecc(char *name,SSL *ssl)
+{    int      nid;
+     EC_KEY  *ecdh;
+
+    /*
+     * Elliptic-Curve Diffie-Hellman parameters are either "named curves"
+     * from RFC 4492 section 5.1.1, or explicitly described curves over
+     * binary fields. OpenSSL only supports the "named curves", which provide
+     * maximum interoperability.
+     */
+
+    nid = OBJ_sn2nid((const char *)name);
+    if (nid == 0)
+		return -1;
+
+    ecdh = EC_KEY_new_by_curve_name(nid);
+    if (ecdh == NULL) 
+	return -1 ;
+   
+    SSL_CTX_set_options(ssl->ctx, SSL_OP_SINGLE_ECDH_USE);
+
+    SSL_CTX_set_tmp_ecdh(ssl->ctx, ecdh);
+
+    EC_KEY_free(ecdh);
+
+	return 0;
+}
+
+
+SSL_CTX *setup_server_ctx(void)
+{
+    SSL_CTX *ctx;
+
+	if (sMODE == 1)
+	{
+
+    ctx = SSL_CTX_new(SSLv23_method(  ));
+
+	
+	SSL_CTX_set_default_passwd_cb(ctx,pem_passwd_cb);
+
+    if (SSL_CTX_use_certificate_chain_file(ctx, certfile) != 1)
+        int_error("Error loading certificate from file");
+    if (SSL_CTX_use_PrivateKey_file(ctx, keyfile, SSL_FILETYPE_PEM) != 1)
+        int_error("Error loading private key from file");
+    
+	}
+
+	else if (sMODE == 2)
+	{
+	ctx = SSL_CTX_new(TLSv1_method(  ));
+
+	SSL_CTX_set_default_passwd_cb(ctx,pem_passwd_cb);
+    
+	if (SSL_CTX_load_verify_locations(ctx, cafile, cadir) != 1)
+        int_error("Error loading CA file and/or directory");
+
+    if (SSL_CTX_set_default_verify_paths(ctx) != 1)
+        int_error("Error loading default CA file and/or directory");
+
+    if (SSL_CTX_use_certificate_chain_file(ctx,certfile) != 1)
+        int_error("Error loading certificate from file");
+
+	if (SSL_CTX_use_PrivateKey_file(ctx, keyfile, SSL_FILETYPE_PEM) != 1)
+    int_error("Error loading private key from file");
+
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,verify_callback);
+
+    SSL_CTX_set_verify_depth(ctx, 4);
+
+	SSL_CTX_sess_set_new_cb(ctx,new_session_cb);
+
+	SSL_CTX_sess_set_remove_cb(ctx,remove_session_cb);
+
+	SSL_CTX_sess_set_get_cb(ctx,get_session_cb);
+
+    SSL_CTX_set_options(ctx, SSL_OP_ALL | SSL_OP_NO_SSLv2 |SSL_OP_NO_SSLv3 | SSL_OP_NO_TICKET );
+	
+	if (SSL_CTX_set_session_id_context(ctx,"SID_CTX",7) != 1)
+    int_error("Error Session Caching");
+
+    if (SSL_CTX_set_cipher_list(ctx, cipherlist) != 1)
+    int_error("Error setting cipher list (no valid ciphers)");
+
+    }
+
+	else if (sMODE == 3)
+	{
+	ctx = SSL_CTX_new(TLSv1_method(  ));
+
+	// SSL_CTX_set_default_passwd_cb(ctx,pem_passwd_cb);
+  
+	SSL_CTX_sess_set_new_cb(ctx,new_session_cb);
+
+	SSL_CTX_sess_set_remove_cb(ctx,remove_session_cb);
+
+	SSL_CTX_sess_set_get_cb(ctx,get_session_cb);
+
+    SSL_CTX_set_options(ctx, SSL_OP_ALL | SSL_OP_NO_SSLv2 |SSL_OP_NO_SSLv3 | SSL_OP_NO_TICKET );
+
+	if (SSL_CTX_set_session_id_context(ctx,"SID_CTX",7) != 1)
+    int_error("Error Session Caching");
+
+
+    if (SSL_CTX_set_cipher_list(ctx, cipherlist) != 1)
+    int_error("Error setting cipher list (no valid ciphers)");
+
+
+	SSL_CTX_set_tmp_ecdh_callback(ctx,f1ecc) ;
+
+    SSL_CTX_set_options(ctx, SSL_OP_SINGLE_ECDH_USE);
+
+	}
+
+
+
+
+
+
+	
+	
+	return ctx;
+}
+
+
+static int isDigit(char c)
+{ if (((int)c >= (int)'0') && ((int)c<= (int)'9')) return(1);
+  if (((int)c >= (int)'A') && ((int)c<= (int)'F')) return(1);
+  if (((int)c >= (int)'a') && ((int)c<= (int)'f')) return(1);
+  return(0);
+}
+
+static int Ascii2bin(char *data_in,char *data_out)
+{  	int deb=-1,fin=-1,i,j=0,nc,iCt=0,v,len;
+    char c;	
+    
+	len =(int)strlen(data_in);
+
+	for(i=0;i<len;i++)
+	{ if      ( (deb == -1) && (isDigit(data_in[i])) )             {iCt=1;deb=i;}
+      else if ( (deb != -1) && (iCt==1) && (isDigit(data_in[i])) ) {iCt=2;fin=i;}
+
+      if (iCt == 2)
+	  { c= data_in[fin+1];
+	    data_in[deb+1]= data_in[fin];
+		data_in[deb+2]= 0;
+	    nc = sscanf(&data_in[deb],"%x",&v);
+		data_in[fin+1]=c;
+
+		v &= 0xFF;
+		data_out[j++]= v ;
+		deb=fin=-1;iCt=0;
+	   }
+    }
+
+return(j);
+}
+
+int DumpBuf(char *buf, int len)
+{ int i;
+  
+  for (i=0;i<len;i++)
+  { gPrintf(0,"%2.2X ", buf[i] & 0xFF );
+    if (i%16 == 15) gPrintf(0,"\n");
+  }
+  
+  if (i%16 != 15) gPrintf(0,"\n");
+
+  return(0);
+
+}
+
+
+
+extern int APDU(int num_reader,char *req, int sreq, char *resp, int*sresp);
+extern int TPDU(int num_reader,char *req, int sreq, char *resp, int*sresp, char *sw1, char *fetch, int id);
+extern int Get_Reader_Index_Abs(int id);
+extern int NBSC    ;
+extern int maxslots;
+extern int Reader_Nb_On;
+
+extern int checkseid(char *id, int uid, int *seid);
+extern char * getlistseid();
+extern int getlistmyseid(int uid, char * resp, int *len);
+
+extern int cardreset(int num_reader, int opt,int id);
+extern int powerup(int numreader,int id);
+extern int powerdown(int numreader,int id);
+extern int apdu_firewall(char *apdu, int len, int uid, int seid);
+
+extern char * getsen(int num_reader);
+
+extern int GetUserId(char *name);
+extern int closeseid(int sid)   ;
+extern int  indexs[]            ;
+extern int  setconsole_name(int id, char *name);
+
+int start(int num_reader,char *sen, char *aid, int cwrite);
+
+/*
+BEGIN       01
+GET-VERSION 02
+SET-VERSION 03
+LIST	    04
+RESET	    05
+APDU	    06
+SHUTDOWN    07
+POWERON     08	
+ECHO        09
+SEN         10
+
++0yz: No Error
+-0yz: command Execution Error
+-1yz: Unknown Command, the command is not defined by this draft
+-2yz: Not imlemented command
+-3yz: Illegal command, the command can't be executed
+-4yz: Not supported parameter or parameter illegal value
+-5yz: Parameter syntax error or parameter missing
+-6yz: Unauthorized command
+-7yz: Already In Use, a session with this SE is already opened
+-8yz: Hardware Error
+-9yz: System Error
+*/
+
+
+int process_line(char **token, int nbtoken, char *resp, int resplen, int *request, char *name, int *namelen, int user, int *fappend, int *pline, int sid)
+{ int i,err,aid,apdu_req_len,apdu_resp_len,seid ;
+  char apdu_req[512]  ;
+  char apdu_resp[MAX_APDU_RESPONSE];
+  char sw[8],sw1[8],fetch[8];
+  char *SW=NULL,*SW1=NULL,*FETCH=NULL;
+  char *stoken;
+  char *buf   ;
+  int  available=0;
+
+
+  if ( (*request != 0) && (nbtoken >=1) && (strcmp(token[0], "END") == 0) )
+  {  *request=0;
+      sprintf(&resp[(int)strlen(resp)],"%s","END\r\n");   
+      return 1 ;
+  }
+
+  if    (*fappend == 1 );
+  else   resp[*pline]=0 ; 
+  
+  *pline= (int)strlen(resp);
+  buf= &resp[*pline];
+  *fappend=0;
+
+  available = resplen - *pline;
+
+
+ 	if (strcmp(token[0], "BEGIN") == 0)
+	{  if (*request != 0)
+	   { sprintf(resp,"BEGIN %s\r\n-301 %03d Duplicate BEGIN\r\nEND\r\n",name,*request-1); 
+	     return -2;
+	   }
+	   else
+	   {   *request=1;
+	       if (nbtoken == 2) 
+		   {
+		     *namelen = (int) strlen(token[1]);
+			 if (*namelen > MAX_SCRIPT_NAME)
+			 { sprintf(resp,"BEGIN %s\r\n-302 %03d Script name > 64\r\nEND\r\n",token[1],*request-1); 
+	           return -2;
+			 }
+             strcpy(name,token[1]) ;
+		   } 
+		    sprintf(resp,"BEGIN %s\r\n",name) ;
+			*pline = (int) strlen(resp);
+			sprintf(&resp[*pline],"+001 %03d No error\r\n",*request-1);
+			return 0;
+	       
+	   }
+	}
+
+
+  if (*request == 0)
+  {    sprintf(resp,"BEGIN\r\n-300 %03d Invalid command line (%s), waiting for BEGIN\r\nEND\r\n",0,token[0]);
+	   return -2;
+  }
+
+
+ if (*request != 0)
+ {
+
+  /*
+  for (i=1;i<nbtoken;i++)
+  { if (strcmp(token[i],"APPEND") == 0)
+    { *fappend=1;
+      break;
+    }
+  }
+  */
+  
+  if ( (nbtoken >1) && (strcmp(token[nbtoken-1],"APPEND") == 0) )
+  *fappend=1;
+
+ }
+ 
+ 
+  if (available < RACS_RESPONSE_BUFFER_MIN_SIZE)
+  {
+    sprintf(resp,"BEGIN %s\r\n-001 %03d memory error\r\nEND\r\n",name,*request-1);
+    return -1;
+  }
+
+
+  
+
+
+  if  (strcmp(token[0], "POWERON") == 0)
+  {   
+       if (nbtoken < 2)
+	   { sprintf(resp,"BEGIN %s\r\n-508 %03d POWERON error, SEID is missing\r\nEND\r\n",name,*request-1);
+         return -1;
+	   }
+
+   	   aid = checkseid(token[1],user,&seid);
+     
+	   if (aid < 0)
+	   { sprintf(resp,"BEGIN %s\r\n-408 %03d POWERON invalid SEID (%s)\r\nEND\r\n",name,*request-1,token[1]);
+         return -1;
+	   }
+
+	   err = powerup(aid,sid);
+
+	   if (err == -2)
+	   { sprintf(resp,"BEGIN %s\r\n-708 %03d POWERON error, SEID %s In Use, SHUTDOWN is required \r\nEND\r\n",name,*request-1,token[1]);
+         return -1;
+	   }
+
+	  if (err == 2)
+	  {  sprintf(buf,"+008 %03d warning SEID %s was already powered, POWERON has been ignored\r\n",*request-1,token[1]);
+	     return 0;
+	  }
+
+
+	   if (err != 0)	   
+	   { sprintf(resp,"BEGIN %s\r\n-908 %03d POWERON SEID %s system error\r\nEND\r\n",name,*request-1,token[1]);
+         return -1;
+	   }
+
+ 
+
+
+      sprintf(buf,"+008 %03d SEID %s has been powered on\r\n",*request-1,token[1]);
+      return 0;
+  }
+
+
+  if  (strcmp(token[0], "SEN") == 0)
+  {   
+       if (nbtoken < 2)
+	   { sprintf(resp,"BEGIN %s\r\n-510 %03d SEN error, SEID is missing\r\nEND\r\n",name,*request-1);
+         return -1;
+	   }
+
+   	   aid = checkseid(token[1],user,&seid);
+     
+	   if (aid < 0)
+	   { sprintf(resp,"BEGIN %s\r\n-410 %03d SEN invalid SEID (%s)\r\nEND\r\n",name,*request-1,token[1]);
+         return -1;
+	   }
+
+	   err = powerdown(aid,sid);
+       
+	   if (err != 0)	   
+	   { sprintf(resp,"BEGIN %s\r\n-910 %03d SEN %s system error (%s)\r\nEND\r\n",name,*request-1,token[1]);
+         return -1;
+	   }
+
+      if      (nbtoken == 2) err= start(aid,NULL,NULL,1);
+      else if (nbtoken == 3) err= start(aid,token[2],NULL,1);
+	  else                   err= start(aid,token[2],token[3],1);
+
+    	    
+	  if  (err == 0) 
+	  {  if (getsen(aid) == NULL)
+ 	     sprintf(buf,"+010 %03d SEID %s has no SEN\r\n",*request-1,token[1]);
+		 else
+         sprintf(buf,"+010 %03d SEID %s is SEN %s \r\n",*request-1,token[1],getsen(aid));
+	  }
+
+	  else
+	  { sprintf(resp,"BEGIN %s\r\n-910 %03d SEN %s system error (%s)\r\nEND\r\n",name,*request-1,token[1]);
+	    return -1;
+	  }
+
+      return 0;
+  }
+
+
+
+
+  if  (strcmp(token[0], "SHUTDOWN") == 0)
+  {   
+       if (nbtoken < 2)
+	   { sprintf(resp,"BEGIN %s\r\n-507 %03d SHUTDOWN error, SEID is missing\r\nEND\r\n",name,*request-1);
+         return -1;
+	   }
+
+   	   aid = checkseid(token[1],user,&seid);
+     
+	   if (aid < 0)
+	   { sprintf(resp,"BEGIN %s\r\n-407 %03d SHUTDOWN invalid SEID %s\r\nEND\r\n",name,*request-1,token[1]);
+         return -1;
+	   }
+
+	   err = powerdown(aid,sid);
+       
+	   if (err != 0)	   
+	   { sprintf(resp,"BEGIN %s\r\n-907 %03d SHUTDOWN %s system error (%s)\r\nEND\r\n",name,*request-1,token[1]);
+         return -1;
+	   }
+
+      sprintf(buf,"+007 %03d SEID %s has been powered off\r\n",*request-1,token[1]);
+      return 0;
+  }
+
+  if  (strcmp(token[0], "RESET") == 0)
+  {   
+       if (nbtoken < 2)
+	   { sprintf(resp,"BEGIN %s\r\n-505 %03d RESET error, SEID is missing\r\nEND\r\n",name,*request-1);
+         return -1;
+	   }
+
+   	   aid = checkseid(token[1],user,&seid);
+     
+	   if (aid < 0)
+	   { sprintf(resp,"BEGIN %s\r\n-405 %03d RESET invalid SEID (%s)\r\nEND\r\n",name,*request-1,token[1]);
+         return -1;
+	   }
+
+	   if ((nbtoken >= 3) && (strcmp(token[2],"WARM")==0) )
+	   { err = cardreset(aid,1,sid);
+	     if (err ==0) 
+			 sprintf(buf,"+005 %03d SEID %s has been resetted (warm)\r\n",*request-1,token[1]);
+	   }
+
+	   else
+	   { err = cardreset(aid,0,sid);
+         if (err ==0) 
+			 sprintf(buf,"+005 %03d SEID %s has been resetted\r\n",*request-1,token[1]);
+	   }
+
+	   if (err == -2)
+	   { sprintf(resp,"BEGIN %s\r\n-705 %03d RESET error, SEID %s already In Use, SHUTDOWN is required \r\nEND\r\n",name,*request-1,token[1]);
+         return -1;
+	   }
+
+	   if (err == -3)
+	   { sprintf(resp,"BEGIN %s\r\n-705 %03d RESET error, SEID %s is powered off, POWERON is required \r\nEND\r\n",name,*request-1,token[1]);
+         return -1;
+	   }
+
+       if (err != 0)	   
+	   { sprintf(resp,"BEGIN %s\r\n-905 %03d RESET system error (%s)\r\nEND\r\n",name,*request-1,token[1]);
+         return -1;
+	   }
+
+      //sprintf(buf,"+005 %03d SEID %s has been resetted\r\n",*request-1,token[1]);
+
+      return 0;
+  }
+
+
+
+  if  (strcmp(token[0], "GET-VERSION") == 0)
+  {   sprintf(buf,"+002 %03d 0.2\r\n",*request-1);
+      return 0;
+  }
+
+  if  (strcmp(token[0], "SET-VERSION") == 0)
+  {  
+	  if (nbtoken < 2)
+	   { sprintf(resp,"BEGIN %s\r\n-502 %03d SET-VERSION error, version value is missing\r\nEND\r\n",name,*request-1);
+         return -1;
+	   }
+
+	  if (strcmp(token[1],"0.2") != 0) 
+	   { sprintf(resp,"BEGIN %s\r\n-402 03d SET-VERSION error, %s is not supported\r\nEND\r\n",name,*request-1,token[1]);
+         return -1;
+	   }
+
+
+	  sprintf(buf,"+002 %03d Version %s is running\r\n",*request-1,token[1]);
+      return 0;
+
+  }
+
+  /////////////////////////test ECHO/////////////////////////////////////////
+  if  (strcmp(token[0], "ECHO") == 0)
+  {  
+	  if (nbtoken < 2)
+	   { sprintf(resp,"BEGIN %s\r\n-509 %03d ECHO error, value is missing\r\nEND\r\n",name,*request-1);
+         return -1;
+	   }
+
+	  sprintf(buf,"+009 %03d %s\r\n",*request-1,token[1]);
+      return 0;
+
+  }
+
+
+  if  (strcmp(token[0], "LIST") == 0)
+  {   
+	  sprintf(buf,"+004 %03d ",*request-1);
+
+      if (restricted_seid_list == 0)
+		  sprintf(&buf[(int)strlen(buf)],"%s",getlistseid());
+ 
+	  else
+	  {   resplen -= (int)strlen(buf);
+		  err= getlistmyseid(user,&buf[(int)strlen(buf)],&resplen);
+	  }
+
+	  sprintf(&buf[(int)strlen(buf)],"\r\n");
+	  
+      
+	  return 0;
+  }
+
+	
+   if  (strcmp(token[0], "APDU") == 0)
+   {   
+	   if (nbtoken < 3)
+	   { sprintf(resp,"BEGIN %s\r\n-506 %03d APDU error, too few parameters\r\nEND\r\n",name,*request-1);
+         return -1;
+	   }
+
+   	   aid = checkseid(token[1],user,&seid);
+     
+	   if (aid < 0)
+	   { sprintf(resp,"BEGIN %s\r\n-406 %03d APDU invalid SEID\r\nEND\r\n",name,*request-1);
+         return -1;
+	    }
+
+		apdu_req_len=  Ascii2bin(token[2],apdu_req) ;
+		if (apdu_req_len <= 0)
+		{sprintf(resp,"BEGIN %s\r\n-506 %03d APDU: invalid apdu format\r\nEND\r\n",name,*request-1);
+         return -1;
+		}
+		   
+        if (nbtoken > 3)
+		{ for (i=3;i<nbtoken;i++)
+		  {
+            
+            stoken = strtok(token[i],"=");
+
+			if (stoken != NULL)
+			{ 
+			if (strcmp(stoken, "CONTINUE")==0)
+			  {	//stoken = strtok(NULL,"");
+                stoken= strtok(stoken+strlen(stoken)+1,"");
+			    if (stoken == NULL);
+				else if (strlen(stoken) != 4);
+				else { 
+					   err=Ascii2bin(stoken,sw) ;
+					   if (err == 2) SW=sw;
+				      }
+			  }
+			
+			else if (strcmp(stoken, "FETCH")==0)
+			  {	//stoken = strtok(NULL,"");
+			    stoken= strtok(stoken+strlen(stoken)+1,"");
+			    if (stoken == NULL);
+				else if (strlen(stoken) != 8);
+				else { 
+					   err=Ascii2bin(stoken,fetch) ;
+					   if (err == 4) FETCH=fetch;
+				      }
+			  }
+
+			else if (strcmp(stoken, "MORE")==0)
+			  {	//stoken = strtok(NULL,"");
+                stoken= strtok(stoken+strlen(stoken)+1,"");
+			    if (stoken == NULL);
+				else if (strlen(stoken) != 2);
+				else { 
+					   err=Ascii2bin(stoken,sw1) ;
+					   if (err == 1) SW1=sw1     ;
+				     }
+			  }
+
+			}
+
+			}
+        
+          }
+
+
+         err=  apdu_firewall(apdu_req,apdu_req_len,user,seid);
+		 if (err <0)
+         {	gPrintf(indexs[aid],"%d %s has been firewalled...\n",sid,token[2]);
+			if (err == -2)
+            sprintf(resp,"BEGIN %s\r\n-706 %03d APDU error, SEID %s, no AID has been selected\r\nEND\r\n",name,*request-1,token[1]);
+			else if (err == -3)
+            sprintf(resp,"BEGIN %s\r\n-706 %03d APDU error, SEID %s, APDU has been firewalled\r\nEND\r\n",name,*request-1,token[1]);
+  		    else
+			sprintf(resp,"BEGIN %s\r\n-706 %03d SELECT error, SEID %s, invalid AID, APDU has been firewalled\r\nEND\r\n",name,*request-1,token[1]);
+            return -1;
+		 }
+
+
+         apdu_resp_len= (int)sizeof(apdu_resp);
+		 err= TPDU(aid,apdu_req,apdu_req_len,apdu_resp,&apdu_resp_len,SW1,FETCH,sid);
+
+		 if (err == -2)
+		 {	sprintf(resp,"BEGIN %s\r\n-706 %03d APDU error, SEID %s already In Use, SHUTDOWN required \r\nEND\r\n",name,*request-1,token[1]);
+            return -1;
+		 }
+
+		 if (err == -3)
+		 {	sprintf(resp,"BEGIN %s\r\n-706 %03d APDU error, SEID %s is powered off, POWERON is required \r\nEND\r\n",name,*request-1,token[1]);
+            return -1;
+		 }
+
+         if (err == -5)
+		 {	sprintf(resp,"BEGIN %s\r\n-706 %03d APDU error, SEID %s response overflow \r\nEND\r\n",name,*request-1,token[1]);
+            return -2;
+		 }
+
+         
+		 if ( (err != 0) || (apdu_resp_len < 2) )
+		 {	sprintf(resp,"BEGIN %s\r\n-806 %03d APDU execution error\r\nEND\r\n",name,*request-1);
+            return -1;
+		 }
+
+		 if (SW != NULL)
+		 { 
+		 if ( (SW[0] != apdu_resp[apdu_resp_len-2]) || (SW[1] != apdu_resp[apdu_resp_len-1]) )
+		 { sprintf(resp,"BEGIN %s\r\n-006 %03d APDU wrong status\r\nEND\r\n",name,*request-1);
+		   return -1;
+		 }
+		 }
+           
+		 
+		 if (available < (RACS_RESPONSE_BUFFER_MIN_SIZE + (2*apdu_resp_len))  )
+         {
+           sprintf(resp,"BEGIN %s\r\n-706 %03d APDU Memory Error\r\nEND\r\n",name,*request-1);
+           return -1;
+         }
+
+		 sprintf(buf,"+006 %03d ",*request-1);  
+
+		 for (i=0;i<apdu_resp_len;i++)
+    	 sprintf(&buf[(int)strlen(buf)],"%02X",0xFF & apdu_resp[i]);
+
+         sprintf(&buf[(int)strlen(buf)],"\r\n");
+		 return 0;
+		 }
+
+
+    sprintf(resp,"BEGIN %s\r\n-900 %03d %s unknown command...\r\nEND\r\n",name,*request-1,token[0]);
+    return -2;
+
+}
+
+
+
+
+
+
+//typedef   struct { int sessionid; SSL *ssl; } PARAMS;
+
+extern int startnewconsole(char *name);
+extern int closeconsole(int index);
+extern HWND gethWnd(int id);
+
+int close_session_console=1;
+int racs_verbose=0;
+int racs_log=1;
+int close_session_delay=0;
+int session_console_tile=0;
+
+extern int tile();
+
+char strace[128]= {"./" };
+
+int do_server_loop(SSL* ssl, int sid)
+{
+    int  err,len   ;
+ 	int nwritten   ;
+    char buf[17000],c,resp[RACS_RESPONSE_BUFFER_SIZE];
+
+	int i,ic=-1;
+
+    char *token=NULL ;
+    //SSL *ssl=NULL;
+	char seps[] = {" \r\n"};
+	char *list[10];
+	int nba=0,nb=0,resplen,fappend=0,pline=0 ;
+
+	char name[64]="";
+	int request=0,namelen,flush=0; 
+	int sock;
+
+    // TIMEVAL timeout   ; 
+    struct timeval timeout;
+    
+    
+    fd_set a_fd_set   ;
+
+    struct timeb timebuffer1;
+    struct timeb timebuffer2;
+    long t1=0,t2=0,dtm=0,rmore=0;
+
+
+    X509      *cert;
+    X509_NAME *subj;
+	char CommonName[256];
+	char sn[128];
+
+	int uid,n=0;//,sessionid;
+	//PARAMS *params;
+
+	//params = (PARAMS *)p        ;
+	//ssl =  params->ssl    ;
+	//sessionid = params->sessionid;
+	//free (p);
+
+     struct sockaddr_in sin;
+     char ip[32];
+	 char fname[MAX_SCRIPT_NAME+1];
+	 int port=0;
+     FILE *f = NULL ;
+     
+	 time_t now;
+     struct tm tm_now;
+     char s_now[sizeof "JJ/MM/AAAA HH:MM:SS"];
+
+    /* lire l'heure courante */
+    now = time (NULL);
+    /* la convertir en heure locale */
+    tm_now = *localtime (&now);
+    strftime (s_now, sizeof s_now, "%d/%m/%Y %H:%M:%S", &tm_now);
+    /* afficher le resultat : */
+    //printf ("'%s'\n", s_now);
+
+
+	 if (racs_log == 1)
+     {	 sprintf(fname,"%sracs_log_%d.txt",strace,sid);
+		 f= fopen(fname,"w+");
+	 }
+
+	cert = SSL_get_peer_certificate(ssl);
+	if (cert == NULL) return 0;
+	subj = X509_get_subject_name(cert);
+
+    if (X509_NAME_get_text_by_NID(subj, NID_commonName, CommonName, (int)sizeof(CommonName)) <= 0)
+	{ X509_free(cert); return 0; }
+	
+	X509_free(cert);
+
+   
+	uid = GetUserId(CommonName);
+
+	if (racs_verbose == 1)
+	{ sprintf(sn,"Session %d Users %s",sid,CommonName);
+	  ic= startnewconsole((char *)&sn[0]);
+      if (session_console_tile == 1)
+	    tile();
+	}
+
+
+    //ssl->session->session_id	
+
+	namelen= (int)sizeof(name) ;
+	resplen= (int)sizeof(resp) ;
+	name[0]=0;
+	resp[0]=0;
+	fappend=0;
+	pline=0;
+	request=0;
+	flush=0;
+	
+	
+   err= BIO_get_fd(ssl->wbio, &sock);
+   timeout.tv_sec  = 1  ; // secondes
+   timeout.tv_usec = 0L ;
+
+  
+    ftime(&timebuffer1); 
+    t1 =  (int)((timebuffer1.time % 3600)*1000) +   (int)timebuffer1.millitm   ;
+
+
+   ip[0]=0;
+   len = (int)sizeof(sin);
+   if (getsockname(sock, (struct sockaddr *)&sin, &len) != 0); //perror("Error on getsockname");
+   else
+   { strcpy(ip, inet_ntoa(sin.sin_addr)); // IP = 0.0.0.0
+     port = sin.sin_port;
+   }
+
+  
+	if (ic >=0)
+		gPrintf(ic,"(%s) Client (%s:%d) CN=%s is connected (uid=%d, sid=%d)...\n",s_now,ip,port,CommonName,uid,sid);
+	else
+        gPrintf(0,"(%s) Client (%s:%d) CN=%s is connected (uid=%d, sid=%d)...\n",s_now,ip,port,CommonName,uid,sid);
+
+    if (f != NULL)
+		fprintf(f,"(%s) Client (%s:%d) CN=%s is connected (uid=%d, sid=%d)\r\n",s_now,ip,port,CommonName,uid,sid);
+
+
+	while(1)
+	{ 
+    
+    if ((int)sizeof(buf)-1-nb <= 0)
+		break;
+     
+	 rmore=1;
+
+	 while(rmore)
+	 {
+ 	 FD_ZERO(&a_fd_set)       ;
+     FD_SET(sock,&a_fd_set)   ;
+     err = select (1+sock,&a_fd_set,NULL,NULL,&timeout);
+    
+	 if ( FD_ISSET(sock, &a_fd_set ) )
+		 rmore=0;
+
+	 else
+	 {   
+          ftime(&timebuffer2);	
+          t2 =  (int)((timebuffer2.time % 3600)*1000) +   (int)timebuffer2.millitm   ;
+          dtm = (t2-t1); // ms
+    
+	      if (dtm <0) dtm += 3600000 ; 
+
+		  // gPrintf(0,"s=%d:t=%d %d\n",sid,dtm,SSL_pending(ssl) );
+		  if (ic >=0)
+		  {   sprintf(sn,"Session %d Users %s time %d",sid,CommonName,dtm/1000); 
+              #ifdef WIN32
+			  //SetConsoleTitle(sn);
+              setconsole_name(ic,sn);
+		      // SetWindowText(gethWnd(ic),sn);
+              #endif
+		  }
+
+
+		  if (dtm > (long)stimeout)
+		  {  gPrintf(0,"Timeout (sid=%d)\n",sid);
+		     goto goodbye;
+		  }
+
+	 }
+	 }
+	 	 
+
+
+	err = SSL_read(ssl, &buf[nb], (int)sizeof(buf)-1-nb);
+    
+	if (err <= 0) 
+	  break ;
+	
+
+	buf[err]=0 ;
+	
+	if (f != NULL)
+		fprintf(f,"%s",buf);
+
+	len=err;
+	nb+=len;
+
+
+
+	for(i=0;i<nb;i++)
+	{ if (buf[i] == (char)'\n')
+	  { 
+		c= buf[i+1]; buf[i+1]=0 ;
+        if (ic >=0) gPrintf(ic,"%s",buf);
+	    nba=0;
+	    token = strtok(buf,seps);
+		
+		if (token == NULL) 
+			goto goodbye ;
+
+	     while(token != NULL)
+	     {if (nba >= (int)sizeof(list)) 
+		   goto goodbye ;
+	      list[nba++]= token ;
+	      //token = strtok(NULL,seps);
+		  token= strtok(token+1+strlen(token),seps);
+	     }
+
+		 //=========================line=============================================
+		 resplen= sizeof(resp);
+		 if      ( (request == 0) && (flush==1) && (strcmp(list[0],"END")== 0) ) err=flush=0;
+         else if (flush ==0)
+		 {	 
+			 err= process_line(list,nba,resp,resplen,&request,name,&namelen,uid,&fappend,&pline,sid);
+
+		 //  0 ligne de commande OK, reponse OK, pas d'envoi
+		 //  1 reponse OK envoi du message reponse, fin de requete (END)
+		 // -2 erreur fatale => fin de session, deconnexion
+		 // -1 flush, lignes restantes ingnores jusqu'a END, pas de deconnexion 
+		
+		 if   (request == 1) flush=0;
+		 if   (request != 0) request++;
+		 if ( (request != 0) && (err == -1) ) flush=1; 
+		 }
+		  //=======================End of Line=======================================
+         n=err;
+
+		 buf[i+1]=c;
+		 if (nb != (i+1)) memmove(buf,&buf[i+1],nb-1 -i-1 +1);
+		 nb = nb - i - 1;
+		 i=0;
+	
+        if ( (err == 1) || (err != 0) )
+		{  	        
+           if (ic >=0)
+			 gPrintf(ic,"\n%s",resp);
+	     
+		   if (f != NULL)
+			   fprintf(f,"%s",resp);
+
+		   resplen = (int)strlen(resp);
+           for (nwritten = 0;  nwritten < resplen;  nwritten += err)
+           {
+            err = SSL_write(ssl, resp + nwritten, resplen - nwritten);
+   	        if (err <= 0)   
+				goto goodbye ;
+            }
+
+		   request=0;
+		   namelen=(int)strlen(name);
+		   name[0]=0;
+           resp[0]=0;
+           resplen= (int)sizeof(resp);
+		   fappend=0;
+           pline=0;
+ 		}
+
+		 if (n == -2) // fatal error
+			   goto goodbye ;
+
+
+	  
+	} // line has been processed
+
+ 
+	} // looking for a new line
+
+
+	} // Read a new TLS message
+
+goodbye:
+	// shutdown all powered seid
+    n=closeseid(sid);
+  
+	now = time (NULL);
+    tm_now = *localtime (&now);
+    strftime (s_now, sizeof s_now, "%d/%m/%Y %H:%M:%S", &tm_now);
+
+	gPrintf(0,"(%s) End of session (sid=%d), %d secure elements has been powered off\n",s_now,sid,n);
+
+	if (f != NULL)
+	{   fprintf(f,"(%s) End of session (sid=%d), %d secure elements has been powered off\r\n",s_now,sid,n);
+		fclose(f);
+		f=NULL;
+	}
+
+	if ( (ic >=0) && (close_session_console == 1) )
+	{	if (close_session_delay > 0) sleep_ms(close_session_delay); 
+	    closeconsole(ic);
+	}
+	
+       
+    return (SSL_get_shutdown(ssl) & SSL_RECEIVED_SHUTDOWN) ? 1 : 0;
+	//return 0;
+}
+
+int nbsession=0;
+static int y=0;
+
+int addx(int *x,int n)
+ { 
+   MUTEX_LOCK(Pmutex[M_SYSTEM]);
+   *x = *x + n;
+   if (n>=0) y++;
+   MUTEX_UNLOCK(Pmutex[M_SYSTEM]);
+   return y;
+ }
+
+
+THREAD_CC server_thread(void *arg)
+{   //int err;
+    //PARAMS *params;
+    SSL *ssl = (SSL *)arg;
+	int sid;
+
+
+#ifndef WIN32
+    pthread_detach(pthread_self(  ));
+#endif
+
+     if (SSL_accept(ssl) <= 0)
+	   { // Perte de connection TCP/IP
+		gPrintf(0, "SSL server_thread, error accepting SSL connection (wrong certificate ...)\n");
+        // SSL_shutdown(ssl);
+        SSL_clear(ssl);
+        SSL_free(ssl);
+        ERR_remove_state(0); 
+	
+		return 0;
+	   }
+
+    sid=addx(&nbsession,1);
+
+	gPrintf(0,"RACS session #%d (sid) opened (total #sessions %d)\n",sid, nbsession);
+
+
+   /*
+       if ((err = post_connection_check(ssl, CLIENT)) != X509_V_OK)
+       gPrintf(0,"-Error: peer certificate: %s\n",
+       X509_verify_cert_error_string(err));
+       int_error("Error checking SSL object after connection");
+   
+   */
+	
+    //params = malloc(sizeof(PARAMS));
+	//params->sessionid = sid  ;
+	//params->ssl = ssl;
+
+	if (do_server_loop(ssl,sid))   SSL_shutdown(ssl);
+    else                           SSL_clear(ssl)   ;
+    
+	SSL_free(ssl);
+    ERR_remove_state(0); 
+
+    addx(&nbsession,-1);
+	gPrintf(0,"RACS session #%d (sid) closed (total #sessions %d)\n", sid, nbsession);
+
+
+#ifdef WIN32
+   ExitThread(0);
+	   return(0);
+
+	
+#endif
+}
+
+THREAD_CC daemon_thread(void *arg)
+{ static BIO         *acc, *client;
+  static SSL         *ssl;
+  static SSL_CTX     *ctx;
+  static THREAD_TYPE tid;
+  long err;
+ 
+
+#ifndef WIN32
+pthread_detach(pthread_self(  ));
+#endif
+    
+ 
+    nbsession=0;
+	y=0;
+   
+   
+    ctx = setup_server_ctx(  );
+    
+    // BIO_set_nbio_accept() sets the accept socket to blocking mode (the default) if n is 0 
+    // or non blocking mode if n is 1.
+    
+    // a_bio=BIO_new_accept(host_port);
+    // s_bio=BIO_new_ssl(ssl_ctx,0); // server
+    
+	acc = BIO_new_accept(mysocket);
+
+    if (!acc)
+        gPrintf(0,"RACS server, error creating server socket\n");
+ 
+    err= BIO_set_nbio_accept(acc,0);
+ 
+    if (BIO_do_accept(acc) <= 0)
+    gPrintf(0,"RACS server, error binding server socket\n");
+
+   
+    for (;;)
+    {
+		gPrintf(0,"RACS server ready on port %s (total #sessions %d)\n",mysocket,nbsession);
+
+        if (BIO_do_accept(acc) <= 0)
+        {
+			gPrintf(0,"RACS server, error accepting connection\n");
+            continue;
+		}
+
+		// TCP port xxx connexion 
+
+        client = BIO_pop(acc);
+
+        if (!(ssl = SSL_new(ctx)))
+		{
+            gPrintf(0, "RACS server, error creating SSL context\n");
+            continue;
+		}
+
+        SSL_set_bio(ssl, client, client);
+		THREAD_CREATE(tid, (void *)server_thread, ssl);
+    }
+    
+    SSL_CTX_free(ctx);
+    BIO_free(acc);
+
+	gPrintf(0,"End of RACS Server Thread\n");
+
+    return 0;
+
+
+
+#ifdef WIN32
+ExitThread(0);
+return(0);
+#endif
+}
+
+THREAD_CC daemon_thread2(void *arg)
+{ static SSL         *ssl;
+  static SSL_CTX     *ctx;
+  static THREAD_TYPE tid;
+  int i;
+  unsigned short port= 443;
+  char host[200];
+  int s;
+  struct sockaddr_in addr;
+  int sclient;
+  int lenaddr;
+ 
+#ifndef WIN32
+pthread_detach(pthread_self(  ));
+#endif
+    
+    nbsession=0;
+	y=0;
+
+    for (i=0;i<(int)strlen(mysocket);i++)
+	{	if (mysocket[i]==(char)':')
+	    { sscanf(&mysocket[i+1],"%u",&port);
+	      mysocket[i]= 0 ;
+		  strcpy(host,mysocket);
+		  mysocket[i]= (char)':'; 
+	      break;
+	    }
+	}
+
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = inet_addr (host); //htonl(INADDR_ANY);
+
+    s = (int) socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) 	{ 
+	perror("Unable to create socket");
+	exit(EXIT_FAILURE);
+    }
+
+    if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+	perror("Unable to bind");
+	exit(EXIT_FAILURE);
+    }
+
+    if (listen(s, 10) < 0) {
+	perror("RACS Server Unable to listen");
+	exit(EXIT_FAILURE);
+    }
+
+    lenaddr = (int)sizeof(addr);
+
+    ctx = setup_server_ctx();
+
+  
+    for (;;)
+    {
+		gPrintf(0,"RACS server ready on port %s:%u (total #sessions %d)\n",host,port,nbsession);
+        sclient = (int)accept(s,(struct sockaddr*)&addr, &lenaddr);
+       
+		if (sclient < 0) 
+		{   perror("RACS Server error, unable to accept client");
+            exit(EXIT_FAILURE);
+		}
+
+        ssl = SSL_new(ctx)      ;
+        SSL_set_fd(ssl, sclient);
+
+		/* Done in server_thread
+        if (SSL_accept(ssl) <= 0) 
+		{   gPrintf(0, "SSL server, error creating SSL context\n");
+		    SSL_free(ssl);
+            continue;            
+		}
+		*/
+
+
+		THREAD_CREATE(tid, (void *)server_thread, ssl);
+    }
+   
+    SSL_CTX_free(ctx);
+    EVP_cleanup();
+    #ifdef WIN32
+	closesocket(s);
+    #else
+	close(s);
+    #endif
+
+	gPrintf(0,"End of RACS Server Thread\n");
+
+    return 0;
+
+
+
+#ifdef WIN32
+ExitThread(0);
+return(0);
+#endif
+}
