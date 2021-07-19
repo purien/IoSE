@@ -1,0 +1,9 @@
+// userid is equal to ServerName (SN)
+// user numer_of_SEID  List_of_SEID
+pascal 3 key1.com  999 0
+client 3 key1.com  999 0
+
+
+
+
+
