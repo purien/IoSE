@@ -16,14 +16,14 @@ Start test.bat
 Start IOSE.exe
 
 ### Using TLS-SE
-Go to /openssl
+Go to /openssl </br>
 Start OPENSSL_TLS_SE_LOCAL_8888.bat </br>
-A TLS session is opened
-enter ?00 + ENTER (the keystore version is displayed)
-enter ?02 + ENTER (this command closes the TLS session)
+A TLS session is opened </br>
+enter ?00 + ENTER (the keystore version is displayed )</br>
+enter ?02 + ENTER (this command closes the TLS session)</br>
 
 ### IOSE Server Administration
-Go to admin
-Start list_SCP03.bat to list apllications in the secure element<br>
-Start helloInstallSCP03.bat to download TLS-SE in the secure element
-Start_RACS_Console_Local.bat to open a RACS console, enter LIST the ENTER ENTER
+Go to admin </br>
+Start list_SCP03.bat to list apllications in the secure element </br>
+Start helloInstallSCP03.bat to download TLS-SE in the secure element </br>
+Start_RACS_Console_Local.bat to open a RACS console, enter LIST then ENTER ENTER
