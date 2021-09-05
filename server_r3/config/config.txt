@@ -57,7 +57,7 @@ system_console  yes
 system_console2 yes
 
 close_session_console yes
-close_session_delay   5000 (in ms)
+close_session_delay   0   (in ms)
 session_console_tile  yes
 
 racs_log  no
