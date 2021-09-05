@@ -28,3 +28,4 @@ IOSE Server Administration
 Go to admin
 Start list_SCP03.bat to list applications in the secure element
 Start helloInstallSCP03.bat to download TLS-SE in the secure element
+Start_RACS_Console_Local.bat to open a RACS console, enter LIST then ENTER ENTER
