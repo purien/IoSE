@@ -1,0 +1,26 @@
+# Server.cnf
+
+[ req ]
+default_bits	    = 2048
+default_keyfile     = clientkey.pem
+default_md          = sha256
+prompt              = no
+distinguished_name  = req_distinguished_name
+x509_extensions	    = req_extensions
+output_password     = pascal
+
+# the following sections are specific to the request we're building       
+
+[ certificate_extensions ]
+basicConstraints = CA:false
+
+[ req_distinguished_name ]
+countryName            = FR
+stateOrProvinceName    = IleDeFrance
+localityName           = Paris
+organizationName       = ethertrust.com
+commonName             = Server
+
+[ req_extensions ]
+basicConstraints = CA:true
+

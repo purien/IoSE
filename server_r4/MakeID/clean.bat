@@ -1,0 +1,3 @@
+del client*.*
+del server*.*
+
