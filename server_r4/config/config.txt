@@ -1,0 +1,103 @@
+//////////////////////////////////////////////
+***********Configuration File*****************
+//////////////////////////////////////////////
+
+ca_file   ./cert/root.pem
+ca_dir    ./
+cert_file ./cert/server.pem
+key_file  ./cert/serverkey.pem
+password  pascal
+
+cipher_list  AES128-GCM-SHA256
+
+server_port       127.0.0.1:7777
+server_port2      127.0.0.1:8888
+enable_racs   yes
+enable_tls_se yes
+
+autostart yes
+start_delay  0       (ms)
+
+trace_dir ./trace/   (default ./)
+
+server_timeout        600000      (in ms)
+server_timeout2        30000      (in ms)
+server_cnx_timeout2    10000      (in ms)
+
+// CN that are not referenced in SEID table (SEID.txt) default access to embedded AID in SE (yes - no)
+// or no SEID.txt file
+se_default_access no
+
+use_sen_as_cardsn no
+
+
+keystore_wait_end_time 90000 (in ms)
+auto_restart no
+
+// List only authorized SEID (default = no)
+restricted_seid_list yes
+
+
+i2c_verbose     no
+
+i2c_max_devices 0
+i2c_first_adr   4
+i2c_reset_pins  17 27 22
+
+
+nb_session_per_sec 20
+nb_session_max     20
+wait_time_out       0  
+
+
+racs_verbose         yes
+
+secure_element_index yes
+
+reader_verbose yes
+
+reader_console yes
+
+system_console  yes
+system_console2 yes
+
+close_session_console yes
+close_session_delay   0 (in ms)
+session_console_tile  yes
+
+racs_log  no
+
+
+is_external_grid     no
+grid_server      gridserver.com
+grid_port        51503
+grid_board       7
+grid_first_slot  25
+grid_max_slots   0 
+
+
+// Blue Green Red
+bg_color   FFFFFF
+pen_color  000000
+font_size  18
+line_size  140
+
+
+// Zone TLS
+cache_enable    no
+cache_timeout   180
+cache_nb_digits 64   // max=64
+cache_for_ever  no
+
+
+
+
+
+
+
+
+
+
+
+
+

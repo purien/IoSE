@@ -1,0 +1,8 @@
+// Card_SN (Server Name) is defined by ATR historical bytes
+// CARD_SN  SEID
+key1.com   key1
+
+
+
+
+
