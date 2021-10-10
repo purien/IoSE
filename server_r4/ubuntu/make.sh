@@ -19,8 +19,3 @@ gcc -c -O2 -Wall  $INCLUDE ./common2.c        -o ./common2.o
 gcc -c -O2 -Wall  $INCLUDE ./server6.c        -o ./server6.o    
 
 gcc -o racs2  ./main.o  ./pcsc.o ./atr.o ./pcscemulator.o ./grid.o ./serverk.o ./windowglue.o  ./common2.o  ./reentrant2.o ./server6.o ./i2c.o ./i2cmod.o -lpcsclite -lpthread -L. -lmssl  -lmcrypto -ldl 
-
-cp ./racs2 ./../racs2
-
-
-
