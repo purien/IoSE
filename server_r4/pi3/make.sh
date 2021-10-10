@@ -19,8 +19,3 @@ gcc -c -O2 -Wall $INCLUDE ./i2cmod.c       -o ./i2cmod.o
 
 
 gcc -o racs2 ./main.o  ./pcsc.o ./atr.o ./pcscemulator.o ./grid.o ./serverk.o ./windowglue.o  ./common2.o  ./reentrant2.o ./server6.o ./i2c.o ./i2cmod.o -lpcsclite -lpthread -lwiringPi -L. -lmssl -lmcrypto -ldl 
-
-cp ./racs2 ./../racs2
-
-
-
