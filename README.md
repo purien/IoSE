@@ -22,16 +22,16 @@ A TLS session is opened </br>
 enter ?00 + ENTER (the keystore version is displayed )</br>
 enter ?02 + ENTER (this command closes the TLS session)</br>
 
-### IOSE Server Administration
+### IoSE Server Administration
 Go to admin </br>
 Start list_SCP03.bat to list apllications in the secure element </br>
 Start helloInstallSCP03.bat to download TLS-SE in the secure element </br>
 Start_RACS_Console_Local.bat to open a RACS console, enter LIST then ENTER ENTER
 
-### IOSE PCSC RaspberryPi
-![IOSE Pi](https://github.com/purien/IoSE/blob/main/iose_pi-small.jpg)
+### IoSE PCSC RaspberryPi
+![IoSE Pi](https://github.com/purien/IoSE/blob/main/iose_pi-small.jpg)
 
 ### IOSE I2C RaspberryPi
-![IOSE I2C](https://github.com/purien/IoSE/blob/main/iose_i2c_b_small.jpg)
+![IoSE I2C](https://github.com/purien/IoSE/blob/main/iose_i2c_b_small.jpg)
 
 
