@@ -2,7 +2,7 @@
 ![IOSE](https://github.com/purien/IoSE/blob/main/iose2.jpg)
 
 ### Getting started
-Go to /serverr3
+Go to /serverr4
 
 ### TLS-SE downloading in secure element
 Go to /gp
