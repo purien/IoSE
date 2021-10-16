@@ -23,7 +23,7 @@ enter ?00 + ENTER (the keystore version is displayed )</br>
 enter ?02 + ENTER (this command closes the TLS session)</br>
 
 ### IoSE Server Administration
-Go to admin </br>
+Go to /admin </br>
 Start list_SCP03.bat to list apllications in the secure element </br>
 Start helloInstallSCP03.bat to download TLS-SE in the secure element </br>
 Start_RACS_Console_Local.bat to open a RACS console, enter LIST then ENTER ENTER
