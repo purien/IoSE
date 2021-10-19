@@ -21,6 +21,7 @@ Start OPENSSL_TLS_SE_LOCAL_8888.bat </br>
 A TLS session is opened </br>
 enter ?00 + ENTER (the keystore version is displayed )</br>
 enter ?02 + ENTER (this command closes the TLS session)</br>
+A list of command is available here https://github.com/purien/IoSE/wiki/TLS-SE--APP-Main-Commands
 
 ### IoSE Server Administration
 Go to /admin </br>
