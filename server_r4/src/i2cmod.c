@@ -1,59 +1,3 @@
-/* i2cmod.c */
-/* Copyright (C) 2021 Pascal Urien (pascal.urien@gmail.com)
- * All rights reserved.
- *
- * This software is an implementation of the internet draft
- * https://tools.ietf.org/html/draft-urien-core-racs-00
- * "Remote APDU Call Secure (RACS)" by Pascal Urien.
- * https://datatracker.ietf.org/doc/html/draft-urien-coinrg-iose-00
- * "Internet of Secure Elements" by Pascal Urien
- * The implementation was written so as to conform with these drafts.
- * 
- * This software is free for non-commercial use as long as
- * the following conditions are aheared to.  The following conditions
- * apply to all code found in this distribution.
- * 
- * Copyright remains Pascal Urien's, and as such any Copyright notices in
- * the code are not to be removed.
- * If this package is used in a product, Pascal Urien should be given attribution
- * as the author of the parts of the library used.
- * This can be in the form of a textual message at program startup or
- * in documentation (online or textual) provided with the package.
- * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *    "This product includes RACS-Server software written by
- *     Pascal Urien (pascal.urien@gmail.com)"
- * 
- * THIS SOFTWARE IS PROVIDED BY PASCAL URIEN ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS 
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- * 
- * The licence and distribution terms for any publically available version or
- * derivative of this code cannot be changed.  i.e. this code cannot simply be
- * copied and put under another distribution licence
- * [including the GNU Public Licence.]
- */
-
-
-
-
 #include "i2cmod.h"
 
 int i2c_fdebug=0;
@@ -211,7 +155,7 @@ if (err != len)
 /* ERROR HANDLING: i2c transaction failed */
 error_i2c++;
 MUTEX_UNLOCK(Pmutex[M_SYSTEM+2]);
-if (i2c_fdebug) gPrintf(SCR,"Failed to write to the i2c bus (req %d read %d.\n",len,err);
+if (i2c_fdebug) gPrintf(SCR,"Failed to write to the i2c bus (req %d read %d)\n",len,err);
 //close (file_i2c);
 return -1 ;
 }
@@ -279,12 +223,35 @@ return len;
 	
 }
 
+int wait_i2c(uint8_t i2c_adr, int dt0, int *tt, int dt, int *ct, char *bufi2c, int nb)
+{ int err=0;
+
+err= rxi2c(bufi2c,nb,i2c_adr);
+
+while(err != nb) 
+{ 
+  usleep(dt0*1000);
+  (*tt) += dt0  ;
+  (*ct)++;
+  if ((*tt) > dt) 
+  { if (i2c_fdebug) gPrintf(SCR,"%s\n","I2C Rx Timeout !");
+    error_timeout++;
+    return -1;
+  }
+  
+  err= rxi2c(bufi2c,nb,i2c_adr);
+}
+
+return err;
+}
+
 
 int i2c_send(uint8_t i2c_adr, char pcb,int len,char *buf, int dt,int f_tx, int f_rx,char * bufi2c)
 { uint16_t mycrc=0;
   uint32_t tr=0,ts=0,trx=0,te=0;
   int err=0,toread;
   int i2c_ptrx2=0 ;
+  int ct=0,nb=0;
  
   buf[0]= 0x5A;
 
@@ -299,8 +266,8 @@ int i2c_send(uint8_t i2c_adr, char pcb,int len,char *buf, int dt,int f_tx, int f
   if (i2c_fdebug)
   myPrintf("TxI2C",(uint8_t *)buf,5+len);
   
-  int nb,pt=0;
-  nb= 5+len;
+  int pt=0   ;
+  nb= 5+len  ;
 
   tr= micros();
   
@@ -309,25 +276,24 @@ int i2c_send(uint8_t i2c_adr, char pcb,int len,char *buf, int dt,int f_tx, int f
   if (nb > MAXI2C)
   {
   err = txi2c(buf+pt,MAXI2C,i2c_adr);
-  //WIRE2.beginTransmission(i2c_adr);
-  //WIRE2.write(buf+pt,MAXI2C);
-  //c=WIRE2.endTransmission() ;
-  nb-=MAXI2C;
-  pt+=MAXI2C;
+  if (err >=0)
+  { nb-=MAXI2C;
+    pt+=MAXI2C;
+  }
   }
   else
   {
   err = txi2c(buf+pt,nb,i2c_adr);
-  // WIRE2.beginTransmission(i2c_adr);
-  // WIRE2.write(buf+pt,nb);
-  // c=WIRE2.endTransmission();
-  
-  nb=0;
+  if (err >=0)
+	  nb=0;
   }
  
   if (err < 0) 
-  { if (i2c_fdebug) {gPrintf(SCR,"Tx Error\n");}
-    return -1;
+  { if (i2c_fdebug) {gPrintf(SCR,"Tx Error, Retry=%d\n",ct);}
+    if (ct > 5)
+		return -1;
+	ct++;
+    usleep(1000);
   }
   }
   }
@@ -337,31 +303,17 @@ int i2c_send(uint8_t i2c_adr, char pcb,int len,char *buf, int dt,int f_tx, int f
  if (!f_rx) 
  return 0;
  
-int tt=0,dt0=10,ct=0;
-int nb=0;
+int tt=0,dt0=10;
 i2c_ptrx2=0;
-
+ct=0;
+nb=0;
 
 while(nb == 0)
 {
 nb=1;
-//WIRE2.requestFrom(i2c_adr,nb,true);
-err= rxi2c(bufi2c,nb,i2c_adr);
 
-while(err != nb) 
-{ 
-  //adelay(dt0);
-  usleep(dt0*1000);
-  tt += dt0  ;
-  ct++;
-  if (tt > dt) 
-  { if (i2c_fdebug) gPrintf(SCR,"%s\n","I2C Timeout !");
-    error_timeout++;
-    return -1;
-  }
-  // WIRE2.requestFrom(i2c_adr,nb,true);
-  err= rxi2c(bufi2c,nb,i2c_adr);
-}
+err= wait_i2c(i2c_adr,dt0,&tt,dt,&ct,bufi2c,nb);
+if (err != nb) return -1;
 
 i2c_ptrx2++;
 nb--;
@@ -369,7 +321,6 @@ if (bufi2c[i2c_ptrx2-1] == (char)0xA5)
 break;
 
 i2c_ptrx2-- ;
-// adelay(dt0) ;
 usleep(dt0*1000);
 tt += dt0   ;
 ct++;
@@ -377,24 +328,9 @@ ct++;
 
 trx= micros();
 nb=2;
-//WIRE2.requestFrom(i2c_adr,nb,true);
-err= rxi2c(bufi2c+1,nb,i2c_adr);
 
-while(err != nb) 
-{   
-  //adelay(dt0);
-  usleep(1000*dt0);
-  tt += dt0;
-  ct++;
-  
-  if (tt > dt) 
-  { if (i2c_fdebug) gPrintf(SCR,"%s\n","I2C Timeout !");
-    error_timeout++;
-    return -1;
-  }
-  err= rxi2c(bufi2c,nb,i2c_adr);
-  //WIRE2.requestFrom(i2c_adr,nb,true);
-}
+err= wait_i2c(i2c_adr,dt0,&tt,dt,&ct,bufi2c+1,nb);
+if (err != nb) return -1;
 
 nb=0;
 i2c_ptrx2+= 2;
@@ -409,12 +345,12 @@ if (nb > MAXI2C)
 else
 { toread=nb;}
 
-err = rxi2c(bufi2c+i2c_ptrx2,toread,i2c_adr);
-if (err < 0) return -1;
+err= wait_i2c(i2c_adr,dt0,&tt,dt,&ct,bufi2c+i2c_ptrx2,toread);
+if (err != toread) return -1;
+
 i2c_ptrx2 += toread;
 nb -= toread;
 }
-
 
 te= micros();
 
@@ -442,7 +378,8 @@ if ( ( (bufi2c[1] & (char)0xE0) == (char)0x80 ) && ( (bufi2c[1] & (char)0x3) != 
 
 
 if (i2c_fdebug)
-{
+{ 
+gPrintf(SCR,"i2c_adr:  %d\n",0xFF & i2c_adr);
 gPrintf(SCR,"i2c_time: %d\n",udelay(te,tr));
 gPrintf(SCR,"i2c_tx: %d\n",udelay(ts,tr));
 gPrintf(SCR,"i2c_wait: %d\n",udelay(trx,ts));
