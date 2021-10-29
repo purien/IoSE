@@ -35,4 +35,5 @@ Start_RACS_Console_Local.bat to open a RACS console, enter LIST then ENTER ENTER
 ### IOSE I2C RaspberryPi
 ![IoSE I2C](https://github.com/purien/IoSE/blob/main/iose_i2c_b_small.jpg)
 
-
+### IOSE Infrastructure
+![IoSE Infrastructure](https://github.com/purien/IoSE/blob/main/iose_arch_small.jpg)
