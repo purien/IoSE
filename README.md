@@ -37,3 +37,6 @@ Start_RACS_Console_Local.bat to open a RACS console, enter LIST then ENTER ENTER
 
 ### IOSE Infrastructure
 ![IoSE Infrastructure](https://github.com/purien/IoSE/blob/main/iose_arch_small.jpg)
+
+### IOSE Sim Server
+![IoSE SMm-Server](https://github.com/purien/IoSE/blob/main/DSC_4237_grid_small.jpg)
