@@ -29,8 +29,8 @@ sudo make install
 ========================================================
 sudo apt-get install i2c-tools
 sudo nano /boot/config.txt
-// in /boot/config.txt find the line containing ìdtparam=i2c_arm=onî.
-// Add ì,i2c_arm_baudrate=200000î where 200000 is the new speed (200 Kbit/s).
+// in /boot/config.txt find the line containing ‚Äúdtparam=i2c_arm=on‚Äù.
+// Add ‚Äú,i2c_arm_baudrate=200000‚Äù where 200000 is the new speed (200 Kbit/s).
 // This should give you a line looking like:
 dtparam=i2c_arm=on,i2c_arm_baudrate=200000
 // Raspberry has 4 GPUs fix the frequency in order to avoid I2C clock dynamic modification
@@ -41,7 +41,7 @@ sudo i2cdetect -y 1
 =========================================================
 
 
-// WiringPi for Pasperry pi
+//Get  WiringPi for Rasperry pi
 ========================================================
 // http://wiringpi.com/news/
 cd /tmp
@@ -53,7 +53,7 @@ gpio readall
 ========================================================
 
 
-// Raspberry PU firmware update
+// Raspberry Pi firmware update
 ========================================================
 sudo rpi-update
 ========================================================
