@@ -1,9 +1,6 @@
 # Internet of Secure Elements (IoSE)
 ![IOSE](https://github.com/purien/IoSE/blob/main/iose2.jpg)
 
-### Getting started
-Go to /server_r5
-
 ### TLS-SE downloading in secure element
 Go to /gp
 Start load_tls_se_304.bat
@@ -11,6 +8,9 @@ Start load_tls_se_304.bat
 ### Test TLS-SE javacard application
 Go to /test
 Start test.bat
+
+### Getting started
+Go to /server_r5
 
 ### Starting IOSE server
 Start IOSE.exe
