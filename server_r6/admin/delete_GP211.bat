@@ -1,0 +1,2 @@
+gpshell deleteGP211.txt
+PAUSE

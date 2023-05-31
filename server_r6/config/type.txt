@@ -1,0 +1,7 @@
+//////////////////////////////////
+"Weneo Reader"
+"SDI011 Contactless Reader"
+"SDI011 Smart Card Reader"
+"SCM Microsystems Inc."
+"Broadcom Corp"
+"SCR33x USB Smart Card Reader"

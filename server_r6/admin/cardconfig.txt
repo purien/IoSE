@@ -1,0 +1,12 @@
+//============================
+//     cardconfig.txt
+//============================
+seid 127.0.0.1:7777/999
+ca   .\root.pem
+cert .\client.pem
+key  .\clientkey.pem
+password pascal
+// seid COM2/key
+// stimeout 120000
+// tx 1
+
